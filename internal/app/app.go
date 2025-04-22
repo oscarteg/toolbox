@@ -3,7 +3,7 @@ package commands
 import (
 	"net/mail"
 
-	"github.com/oscarteg/tools/internal/commands/mdmeta"
+	"github.com/oscarteg/toolbox/internal/commands/mdmeta"
 	"github.com/urfave/cli/v3"
 )
 

@@ -5,7 +5,7 @@ import (
 	"log"
 	"os"
 
-	commands "github.com/oscarteg/tools/internal/app"
+	commands "github.com/oscarteg/toolbox/internal/app"
 )
 
 func main() {

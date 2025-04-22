@@ -1,4 +1,4 @@
-module github.com/oscarteg/tools
+module github.com/oscarteg/toolbox
 
 go 1.23.3
 
