@@ -12,27 +12,39 @@ func NewCommand() *cli.Command {
 		Usage:   "Update markdown file metadata based on frontmatter",
 		Description: `This command scans markdown files and updates their file system
 metadata (creation time and modification time) using values from the frontmatter.`,
-		Action: handleMdMeta,
+
+		Commands: []*cli.Command{
+			{
+				Name:    "update",
+				Aliases: []string{"u"},
+				Usage:   "Update metadata",
+				Action:  handleMdMeta,
+			},
+		},
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name: "directory",
-
-				Usage: "Directory containing markdown files",
-				Value: "./",
+				Name:    "directory",
+				Aliases: []string{"d"},
+				Usage:   "Directory containing markdown files",
+				Value:   "./",
 			},
 			&cli.StringFlag{
-				Name:  "created",
-				Usage: "Frontmatter attribute for creation date",
-				Value: "date",
+				Name:    "created",
+				Aliases: []string{"c"},
+				Usage:   "Frontmatter attribute for creation date",
+				Value:   "date",
 			},
 			&cli.StringFlag{
-				Name:  "modified",
-				Usage: "Frontmatter attribute for modification date",
-				Value: "updated",
+				Name:    "modified",
+				Aliases: []string{"m"},
+				Usage:   "Frontmatter attribute for modification date",
+				Value:   "updated",
 			},
 			&cli.BoolFlag{
-				Name:  "recursive",
-				Usage: "Process directories recursively",
+				Name:    "recursive",
+				Aliases: []string{"r"},
+				Usage:   "Process directories recursively",
+				Value:   true,
 			},
 		},
 	}

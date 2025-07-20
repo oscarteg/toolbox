@@ -3,6 +3,7 @@ package commands
 import (
 	"net/mail"
 
+	"github.com/oscarteg/toolbox/internal/commands/linkworktrees"
 	"github.com/oscarteg/toolbox/internal/commands/mdmeta"
 	"github.com/urfave/cli/v3"
 )
@@ -25,6 +26,7 @@ Run 'toolbox <command> --help' for more information on a specific command.`,
 			},
 		},
 		Commands: []*cli.Command{
+			linkworktrees.NewCommand(),
 			mdmeta.NewCommand(),
 		},
 	}
