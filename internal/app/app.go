@@ -12,7 +12,14 @@ func RootCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "toolbox",
 		Usage: "Personal toolkit for automation tasks",
-		Description: `A collection of utility tools for my common tasks.
+		Description: `A collection of utility tools for common automation tasks.
+
+EXAMPLES:
+  toolbox linkworktrees                   # Link files from ./links to all git worktrees
+  toolbox linkworktrees -d config         # Link files from ./config directory
+  toolbox mdmeta update                   # Update markdown metadata from frontmatter
+  toolbox mdmeta update -d ./posts -r     # Process ./posts recursively
+
 Run 'toolbox <command> --help' for more information on a specific command.`,
 		Version: "0.1.0",
 		Authors: []any{

@@ -13,44 +13,6 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// Command returns the mdmeta command
-func Command() *cli.Command {
-	return &cli.Command{
-		Name:    "mdmeta",
-		Aliases: []string{"mm"},
-		Usage:   "Update markdown file metadata based on frontmatter",
-		Description: `This command scans markdown files and updates their file system
-metadata (creation time and modification time) using values from the frontmatter.`,
-		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:    "directory",
-				Aliases: []string{"d"},
-				Usage:   "Directory containing markdown files",
-				Value:   "./",
-			},
-			&cli.StringFlag{
-				Name:    "created",
-				Aliases: []string{"c"},
-				Usage:   "Frontmatter attribute for creation date",
-				Value:   "date",
-			},
-			&cli.StringFlag{
-				Name:    "modified",
-				Aliases: []string{"m"},
-				Usage:   "Frontmatter attribute for modification date",
-				Value:   "updated",
-			},
-			&cli.BoolFlag{
-				Name:    "recursive",
-				Aliases: []string{"r"},
-				Usage:   "Process directories recursively",
-				Value:   true,
-			},
-		},
-		Action: handleMdMeta,
-	}
-}
-
 // Stats holds the processing statistics
 type Stats struct {
 	Processed int
@@ -59,29 +21,52 @@ type Stats struct {
 	Failed    int
 }
 
-// handleMdMeta handles the mdmeta command
+// updateOptions holds the options for processing markdown files
+type updateOptions struct {
+	createdAttr  string
+	modifiedAttr string
+	verbose      bool
+	dryRun       bool
+}
+
+// handleMdMeta handles the mdmeta update command
 func handleMdMeta(ctx context.Context, cmd *cli.Command) error {
 	dir := cmd.String("directory")
-	createdAttr := cmd.String("created")
-	modifiedAttr := cmd.String("modified")
 	recursive := cmd.Bool("recursive")
-	verbose := cmd.Root().Bool("verbose")
+	dryRun := cmd.Bool("dry-run")
+
+	opts := updateOptions{
+		createdAttr:  cmd.String("created"),
+		modifiedAttr: cmd.String("modified"),
+		verbose:      cmd.Root().Bool("verbose"),
+		dryRun:       dryRun,
+	}
+
+	if dryRun {
+		fmt.Println("DRY RUN: No changes will be made")
+		fmt.Println()
+	}
 
 	fmt.Printf("Processing markdown files in: %s\n", dir)
 	fmt.Printf("Using frontmatter attributes:\n")
-	fmt.Printf("  - Creation date: %s\n", createdAttr)
-	fmt.Printf("  - Modification date: %s\n", modifiedAttr)
+	fmt.Printf("  - Creation date: %s\n", opts.createdAttr)
+	fmt.Printf("  - Modification date: %s\n", opts.modifiedAttr)
 	fmt.Printf("Recursive mode: %t\n\n", recursive)
 
 	stats := Stats{}
 
-	// Walk the directory
 	walkFn := func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
-		// Skip directories unless in recursive mode
+		// Check for context cancellation
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		if d.IsDir() {
 			if path != dir && !recursive {
 				return filepath.SkipDir
@@ -89,7 +74,6 @@ func handleMdMeta(ctx context.Context, cmd *cli.Command) error {
 			return nil
 		}
 
-		// Process only markdown files
 		if !strings.HasSuffix(strings.ToLower(d.Name()), ".md") {
 			stats.Skipped++
 			return nil
@@ -97,11 +81,10 @@ func handleMdMeta(ctx context.Context, cmd *cli.Command) error {
 
 		stats.Processed++
 
-		// Process the file
-		updated, err := processMarkdownFile(path, createdAttr, modifiedAttr, verbose)
+		updated, err := processMarkdownFile(path, opts)
 		if err != nil {
 			stats.Failed++
-			fmt.Fprintf(os.Stderr, "❌ Error processing %s: %s\n", d.Name(), err)
+			fmt.Fprintf(os.Stderr, "Error processing %s: %s\n", d.Name(), err)
 			return nil
 		}
 
@@ -116,7 +99,6 @@ func handleMdMeta(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("error walking directory: %w", err)
 	}
 
-	// Print summary
 	fmt.Printf("\nSummary:\n")
 	fmt.Printf("- Processed: %d markdown files\n", stats.Processed)
 	fmt.Printf("- Updated:   %d files\n", stats.Updated)
@@ -126,62 +108,58 @@ func handleMdMeta(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-// processMarkdownFile processes a single markdown file
-func processMarkdownFile(filePath, createdAttr, modifiedAttr string, verbose bool) (bool, error) {
-	// Open the file
+// processMarkdownFile processes a single markdown file and updates its timestamps
+func processMarkdownFile(filePath string, opts updateOptions) (bool, error) {
 	file, err := os.ReadFile(filePath)
 	if err != nil {
 		return false, err
 	}
 
-	// Parse frontmatter
-	var metadata map[string]interface{}
+	var metadata map[string]any
 	_, err = frontmatter.Parse(strings.NewReader(string(file)), &metadata)
 	if err != nil {
-		if verbose {
-			fmt.Printf("⚠️ No valid frontmatter found in: %s\n", filepath.Base(filePath))
+		if opts.verbose {
+			fmt.Printf("No valid frontmatter found in: %s\n", filepath.Base(filePath))
 		}
 		return false, nil
 	}
 
 	// Check we have at least one date attribute
-	if _, hasCreated := metadata[createdAttr]; !hasCreated {
-		if _, hasModified := metadata[modifiedAttr]; !hasModified {
-			if verbose {
-				fmt.Printf("⚠️ No date attributes found in: %s\n", filepath.Base(filePath))
-			}
-			return false, nil
+	_, hasCreated := metadata[opts.createdAttr]
+	_, hasModified := metadata[opts.modifiedAttr]
+	if !hasCreated && !hasModified {
+		if opts.verbose {
+			fmt.Printf("No date attributes found in: %s\n", filepath.Base(filePath))
 		}
+		return false, nil
 	}
 
-	// Extract dates
 	var createdTime, modifiedTime time.Time
 	var createdOk, modifiedOk bool
 
-	if createdStr, ok := getStringValue(metadata, createdAttr); ok {
+	if createdStr, ok := getStringValue(metadata, opts.createdAttr); ok {
 		if t, err := parseDate(createdStr); err == nil {
 			createdTime = t
 			createdOk = true
-		} else if verbose {
-			fmt.Printf("⚠️ Invalid %s format in %s: %s\n",
-				createdAttr, filepath.Base(filePath), createdStr)
+		} else if opts.verbose {
+			fmt.Printf("Invalid %s format in %s: %s\n",
+				opts.createdAttr, filepath.Base(filePath), createdStr)
 		}
 	}
 
-	if modifiedStr, ok := getStringValue(metadata, modifiedAttr); ok {
+	if modifiedStr, ok := getStringValue(metadata, opts.modifiedAttr); ok {
 		if t, err := parseDate(modifiedStr); err == nil {
 			modifiedTime = t
 			modifiedOk = true
-		} else if verbose {
-			fmt.Printf("⚠️ Invalid %s format in %s: %s\n",
-				modifiedAttr, filepath.Base(filePath), modifiedStr)
+		} else if opts.verbose {
+			fmt.Printf("Invalid %s format in %s: %s\n",
+				opts.modifiedAttr, filepath.Base(filePath), modifiedStr)
 		}
 	}
 
-	// If neither date is valid, skip
 	if !createdOk && !modifiedOk {
-		if verbose {
-			fmt.Printf("⚠️ No valid dates found in: %s\n", filepath.Base(filePath))
+		if opts.verbose {
+			fmt.Printf("No valid dates found in: %s\n", filepath.Base(filePath))
 		}
 		return false, nil
 	}
@@ -197,18 +175,27 @@ func processMarkdownFile(filePath, createdAttr, modifiedAttr string, verbose boo
 		modifyTime = createdTime
 	}
 
-	// Update file times
+	if opts.dryRun {
+		fmt.Printf("Would update metadata of '%s':\n", filepath.Base(filePath))
+		if createdOk {
+			fmt.Printf("   - %s: %s\n", opts.createdAttr, createdTime.Format(time.RFC3339))
+		}
+		if modifiedOk {
+			fmt.Printf("   - %s: %s\n", opts.modifiedAttr, modifiedTime.Format(time.RFC3339))
+		}
+		return true, nil
+	}
+
 	if err := os.Chtimes(filePath, accessTime, modifyTime); err != nil {
 		return false, err
 	}
 
-	// Print success message
-	fmt.Printf("✅ Updated metadata of '%s':\n", filepath.Base(filePath))
+	fmt.Printf("Updated metadata of '%s':\n", filepath.Base(filePath))
 	if createdOk {
-		fmt.Printf("   - %s: %s\n", createdAttr, createdTime.Format(time.RFC3339))
+		fmt.Printf("   - %s: %s\n", opts.createdAttr, createdTime.Format(time.RFC3339))
 	}
 	if modifiedOk {
-		fmt.Printf("   - %s: %s\n", modifiedAttr, modifiedTime.Format(time.RFC3339))
+		fmt.Printf("   - %s: %s\n", opts.modifiedAttr, modifiedTime.Format(time.RFC3339))
 	}
 
 	return true, nil
